@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8"> <!-- 🔹 دعم UTF-8 للنصوص العربية -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحويل الصوت إلى فيديو</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 500px;
+            margin: auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        input, textarea, button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+            direction: rtl; /* لضمان اتجاه النص العربي */
+        }
+        textarea {
+            white-space: pre-wrap; /* للحفاظ على فواصل الأسطر */
+        }
+        #progressBar {
+            width: 100%;
+            height: 20px;
+            background-color: #ddd;
+            margin-top: 10px;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #progressFill {
+            height: 100%;
+            width: 0%;
+            background-color: #4CAF50;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🎵 تحويل ملف WAV إلى فيديو</h2>
+        
+        <!-- إدخال النص العربي -->
+        <label>أدخل النص الذي تريد عرضه في الفيديو:</label>
+        <textarea id="videoText" placeholder="اكتب النص هنا..." rows="5"></textarea>
+
+        <!-- رفع ملف الصوت -->
+        <input type="file" id="audioFile" accept=".wav">
+
+        <!-- زر التحويل -->
+        <button onclick="uploadAndConvert()">تحويل</button>
+
+        <!-- شريط التقدم -->
+        <div id="progressBar">
+            <div id="progressFill">0%</div>
+        </div>
+    </div>
+
+    <script>
+        function uploadAndConvert() {
+            let audioFile = document.getElementById("audioFile").files[0];
+            let videoText = document.getElementById("videoText").value;
+
+            if (!audioFile) {
+                alert("⚠ يرجى اختيار ملف صوت WAV");
+                return;
+            }
+
+            let formData = new FormData();
+            formData.append("audio", audioFile);
+            formData.append("text", videoText);
+
+            let xhr = new XMLHttpRequest();
+            xhr.open("POST", "/convert", true);
+            xhr.responseType = "blob";
+
+            // متابعة التقدم
+            let progressInterval = setInterval(() => {
+                fetch("/progress")
+                    .then(res => res.json())
+                    .then(data => {
+                        let progress = data.progress;
+                        document.getElementById("progressFill").style.width = progress + "%";
+                        document.getElementById("progressFill").innerText = progress + "%";
+                    });
+            }, 500);
+
+            xhr.onload = function () {
+                clearInterval(progressInterval);
+                if (xhr.status === 200) {
+                    let blob = new Blob([xhr.response], { type: "video/mp4" });
+                    let link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.download = "converted_video.mp4";
+                    link.click();
+                } else {
+                    alert("❌ حدث خطأ أثناء التحويل");
+                }
+            };
+
+            xhr.send(formData);
+        }
+    </script>
+</body>
+</html>
