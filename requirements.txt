@@ -4,3 +4,4 @@ arabic-reshaper
 python-bidi
 pillow
 numpy
+gunicorn
