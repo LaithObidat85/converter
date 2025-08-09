@@ -84,12 +84,12 @@
             formData.append("text", videoText);
 
             let xhr = new XMLHttpRequest();
-            xhr.open("POST", "/convert", true);
+            xhr.open("POST", "https://converter-of9r.onrender.com/convert", true);
             xhr.responseType = "blob";
 
             // متابعة التقدم
             let progressInterval = setInterval(() => {
-                fetch("/progress")
+                fetch("https://converter-of9r.onrender.com/progress")
                     .then(res => res.json())
                     .then(data => {
                         let progress = data.progress;
