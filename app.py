@@ -70,10 +70,13 @@ def convert():
         image = Image.new("RGB", (width, height), color=color)
         draw = ImageDraw.Draw(image)
 
+        # 📌 محاولة تحميل الخط من نفس مجلد app.py
         try:
             font_path = os.path.join(os.path.dirname(__file__), "arial-unicode-ms.ttf")
             font = ImageFont.truetype(font_path, 80)
-        except:
+            print(f"✅ تم تحميل الخط بنجاح من: {font_path}")
+        except Exception as e:
+            print(f"⚠ خطأ في تحميل الخط: {e}")
             font = ImageFont.load_default()
 
         # 🔹 دعم العربية سطر-بسطر
