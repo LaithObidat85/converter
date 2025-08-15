@@ -88,7 +88,7 @@ def convert():
         except:
             font = ImageFont.load_default()
 
-        # ✨ دعم العربية سطر بسطر
+        # 🔹 دعم العربية سطر-بسطر كما في الكود الأصلي
         video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
         raw_lines = video_text_clean.split("\n")
 
