@@ -24,15 +24,26 @@ app = Flask(__name__)
 progress_value = 0
 
 async def render_arabic_text(text, width, height, font_size):
-    """إنشاء صورة PNG للنص العربي باستخدام Puppeteer لضمان عرض صحيح"""
+    """إنشاء صورة PNG للنص العربي باستخدام Puppeteer وخط عربي محلي"""
     reshaped_text = arabic_reshaper.reshape(text)
     bidi_text = get_display(reshaped_text)
+
+    # مسار الخط بجانب ملف app.py
+    font_path = os.path.abspath("NotoNaskhArabic-VariableFont_wght.ttf")
+
+    # فحص وجود الخط
+    if not os.path.exists(font_path):
+        raise FileNotFoundError(f"❌ ملف الخط غير موجود: {font_path}")
 
     html_content = f"""
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <style>
+            @font-face {{
+                font-family: 'MyArabicFont';
+                src: url('file://{font_path}') format('truetype');
+            }}
             body {{
                 margin: 0;
                 background: transparent;
@@ -43,7 +54,7 @@ async def render_arabic_text(text, width, height, font_size):
                 height: {height}px;
             }}
             p {{
-                font-family: 'Noto Naskh Arabic', sans-serif;
+                font-family: 'MyArabicFont', sans-serif;
                 font-size: {font_size}px;
                 color: white;
                 text-align: center;
