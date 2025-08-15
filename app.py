@@ -50,6 +50,14 @@ def convert():
     def blend_colors(c1, c2, ratio):
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
 
+    def process_line(line):
+        """معالجة السطر: إذا كان يحتوي عربي → إعادة تشكيل وتطبيق bidi"""
+        clean = ''.join(ch for ch in line if ch.isprintable())
+        if any('\u0600' <= ch <= '\u06FF' for ch in clean):
+            reshaped = arabic_reshaper.reshape(clean)
+            return get_display(reshaped)
+        return clean
+
     def create_frame(t):
         global progress_value
         progress_value = int((t / audio_clip.duration) * 100)
@@ -70,29 +78,17 @@ def convert():
         image = Image.new("RGB", (width, height), color=color)
         draw = ImageDraw.Draw(image)
 
-        # 📌 محاولة تحميل الخط من نفس مجلد app.py
         try:
             font_path = os.path.join(os.path.dirname(__file__), "arial-unicode-ms.ttf")
             font = ImageFont.truetype(font_path, 80)
-            print(f"✅ تم تحميل الخط بنجاح من: {font_path}")
-        except Exception as e:
-            print(f"⚠ خطأ في تحميل الخط: {e}")
+        except:
             font = ImageFont.load_default()
 
-        # 🔹 دعم العربية سطر-بسطر
+        # 🔹 تجهيز النص سطر-بسطر
         video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
-        raw_lines = video_text_clean.split("\n")
+        lines = [process_line(raw) for raw in video_text_clean.split("\n")]
 
-        lines = []
-        for raw in raw_lines:
-            clean = ''.join(ch for ch in raw if ch.isprintable())
-            if any('\u0600' <= ch <= '\u06FF' for ch in clean):
-                reshaped = arabic_reshaper.reshape(clean)
-                bidi_line = get_display(reshaped)
-            else:
-                bidi_line = clean
-            lines.append(bidi_line)
-
+        # حساب موضع النص
         line_heights = []
         max_width = 0
         for line in lines:
@@ -105,6 +101,8 @@ def convert():
 
         total_height = sum(line_heights) + (len(lines) - 1) * 20
         current_y = (height - total_height) // 2
+
+        # رسم النص
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             w = bbox[2] - bbox[0]
