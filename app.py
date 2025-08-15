@@ -90,6 +90,7 @@ def convert():
             if any('\u0600' <= ch <= '\u06FF' for ch in clean):  # إذا يحتوي على حروف عربية
                 reshaped = arabic_reshaper.reshape(clean)       # إعادة تشكيل الحروف
                 bidi_line = get_display(reshaped)               # قلب الاتجاه للعرض الصحيح
+                bidi_line = "\u202B" + bidi_line + "\u202C"      # إجبار اتجاه النص RTL
             else:
                 bidi_line = clean
             lines.append(bidi_line)
