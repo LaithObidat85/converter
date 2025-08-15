@@ -62,7 +62,7 @@ def convert():
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
 
     def draw_text_with_pango(text, font_size, image_width, image_height):
-        """إنشاء صورة نص باستخدام Pango + Cairo مع دعم العربية"""
+        """إنشاء صورة شفافة للنص العربي باستخدام Pango + Cairo"""
         surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, image_width, image_height)
         ctx = cairo.Context(surface)
         layout = PangoCairo.create_layout(ctx)
@@ -81,7 +81,7 @@ def convert():
         # تحديد موقع النص في منتصف الصورة
         ink_rect, logical_rect = layout.get_extents()
         text_height = logical_rect.height // Pango.SCALE
-        ctx.set_source_rgb(1, 1, 1)
+        ctx.set_source_rgba(1, 1, 1, 1)  # نص أبيض شفاف
         ctx.move_to(0, (image_height - text_height) / 2)
         PangoCairo.show_layout(ctx, layout)
 
@@ -107,12 +107,12 @@ def convert():
         # خلفية
         bg_image = Image.new("RGB", (width, height), color=color)
 
-        # نص
+        # نص شفاف
         text_surface = draw_text_with_pango(video_text, 80, width, height)
         text_data = text_surface.get_data()
         text_img = Image.frombuffer("RGBA", (width, height), text_data, "raw", "BGRA", 0, 1)
 
-        # دمج النص مع الخلفية
+        # دمج النص الشفاف فوق الخلفية
         bg_image.paste(text_img, (0, 0), text_img)
 
         return np.array(bg_image)
