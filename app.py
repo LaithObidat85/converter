@@ -3,7 +3,7 @@ import subprocess
 import os
 
 # ✅ التأكد من تثبيت المكتبات المطلوبة
-for package in ["arabic-reshaper", "python-bidi", "pycairo", "PyGObject"]:
+for package in ["arabic-reshaper", "python-bidi", "pillow", "numpy", "moviepy"]:
     try:
         __import__(package.replace("-", "_"))
     except ImportError:
@@ -11,19 +11,13 @@ for package in ["arabic-reshaper", "python-bidi", "pycairo", "PyGObject"]:
 
 from flask import Flask, render_template, request, send_file, jsonify
 from moviepy.editor import AudioFileClip, VideoClip
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import math
 
 # مكتبات دعم العربية
 import arabic_reshaper
 from bidi.algorithm import get_display
-
-# مكتبات Pango + Cairo
-import gi
-gi.require_version('Pango', '1.0')
-gi.require_version('PangoCairo', '1.0')
-from gi.repository import Pango, PangoCairo, cairo
 
 app = Flask(__name__)
 progress_value = 0
@@ -61,31 +55,32 @@ def convert():
     def blend_colors(c1, c2, ratio):
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
 
-    def draw_text_with_pango(text, font_size, image_width, image_height):
-        """إنشاء صورة شفافة للنص العربي باستخدام Pango + Cairo"""
-        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, image_width, image_height)
-        ctx = cairo.Context(surface)
-        layout = PangoCairo.create_layout(ctx)
+    def draw_text_with_pillow(text, font_size, image_width, image_height):
+        """إنشاء صورة نص باستخدام Pillow مع دعم العربية"""
+        reshaped_text = arabic_reshaper.reshape(text)
+        bidi_text = get_display(reshaped_text)
 
-        # تفعيل دعم العربية
-        reshaped = arabic_reshaper.reshape(text)
-        bidi_text = get_display(reshaped)
+        img = Image.new("RGBA", (image_width, image_height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
 
-        # إعدادات الخط
-        font_desc = Pango.FontDescription(f"Noto Naskh Arabic {font_size}")
-        layout.set_font_description(font_desc)
-        layout.set_width(image_width * Pango.SCALE)
-        layout.set_alignment(Pango.Alignment.CENTER)
-        layout.set_text(bidi_text, -1)
+        try:
+            font = ImageFont.truetype(font_path, font_size)
+        except:
+            return img  # لو الخط غير موجود، ترجع صورة فارغة
 
-        # تحديد موقع النص في منتصف الصورة
-        ink_rect, logical_rect = layout.get_extents()
-        text_height = logical_rect.height // Pango.SCALE
-        ctx.set_source_rgba(1, 1, 1, 1)  # نص أبيض شفاف
-        ctx.move_to(0, (image_height - text_height) / 2)
-        PangoCairo.show_layout(ctx, layout)
+        # قياس حجم النص
+        text_bbox = draw.textbbox((0, 0), bidi_text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
 
-        return surface
+        # تحديد الموقع في منتصف الصورة
+        x = (image_width - text_width) / 2
+        y = (image_height - text_height) / 2
+
+        # رسم النص باللون الأبيض
+        draw.text((x, y), bidi_text, font=font, fill=(255, 255, 255, 255))
+
+        return img
 
     def create_frame(t):
         global progress_value
@@ -104,15 +99,13 @@ def convert():
         base_color = blend_colors(colors[current_index], colors[next_index], ratio)
         color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
 
-        # خلفية
+        # خلفية ملونة
         bg_image = Image.new("RGB", (width, height), color=color)
 
-        # نص شفاف
-        text_surface = draw_text_with_pango(video_text, 80, width, height)
-        text_data = text_surface.get_data()
-        text_img = Image.frombuffer("RGBA", (width, height), text_data, "raw", "BGRA", 0, 1)
+        # نص
+        text_img = draw_text_with_pillow(video_text, 80, width, height)
 
-        # دمج النص الشفاف فوق الخلفية
+        # دمج النص مع الخلفية
         bg_image.paste(text_img, (0, 0), text_img)
 
         return np.array(bg_image)
