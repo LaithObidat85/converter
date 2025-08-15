@@ -1,9 +1,11 @@
 import sys
 import subprocess
 import os
+import tempfile
+import asyncio
 
 # ✅ التأكد من تثبيت المكتبات المطلوبة
-for package in ["arabic-reshaper", "python-bidi", "pillow", "numpy", "moviepy"]:
+for package in ["arabic-reshaper", "python-bidi", "pillow", "numpy", "moviepy", "pyppeteer"]:
     try:
         __import__(package.replace("-", "_"))
     except ImportError:
@@ -11,16 +13,63 @@ for package in ["arabic-reshaper", "python-bidi", "pillow", "numpy", "moviepy"]:
 
 from flask import Flask, render_template, request, send_file, jsonify
 from moviepy.editor import AudioFileClip, VideoClip
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import numpy as np
 import math
-
-# مكتبات دعم العربية
 import arabic_reshaper
 from bidi.algorithm import get_display
+from pyppeteer import launch
 
 app = Flask(__name__)
 progress_value = 0
+
+async def render_arabic_text(text, width, height, font_size):
+    """إنشاء صورة PNG للنص العربي باستخدام Puppeteer لضمان عرض صحيح"""
+    reshaped_text = arabic_reshaper.reshape(text)
+    bidi_text = get_display(reshaped_text)
+
+    html_content = f"""
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body {{
+                margin: 0;
+                background: transparent;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: {width}px;
+                height: {height}px;
+            }}
+            p {{
+                font-family: 'Noto Naskh Arabic', sans-serif;
+                font-size: {font_size}px;
+                color: white;
+                text-align: center;
+                white-space: pre-line;
+            }}
+        </style>
+    </head>
+    <body>
+        <p>{bidi_text}</p>
+    </body>
+    </html>
+    """
+
+    html_file = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
+    html_file.write(html_content.encode("utf-8"))
+    html_file.close()
+
+    browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+    page = await browser.newPage()
+    await page.setViewport({"width": width, "height": height})
+    await page.goto(f"file://{html_file.name}")
+    screenshot_path = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
+    await page.screenshot({'path': screenshot_path, 'omitBackground': True})
+    await browser.close()
+
+    return screenshot_path
 
 @app.route('/')
 def index():
@@ -43,51 +92,19 @@ def convert():
 
     audio_path = "uploaded.wav"
     audio_file.save(audio_path)
-
     audio_clip = AudioFileClip(audio_path)
+
     width, height = 1280, 720
     colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
 
-    # 📌 مسار الخط
-    font_path = os.path.join(os.path.dirname(__file__), "NotoNaskhArabic-VariableFont_wght.ttf")
-    print(f"✅ الخط المستخدم: {font_path}")
+    async def prepare_text_image():
+        return await render_arabic_text(video_text, width, height, 80)
+
+    text_image_path = asyncio.get_event_loop().run_until_complete(prepare_text_image())
+    text_img = Image.open(text_image_path).convert("RGBA")
 
     def blend_colors(c1, c2, ratio):
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
-
-    def draw_text_with_pillow(text, font_size, image_width, image_height):
-        """إنشاء صورة نص باستخدام Pillow مع دعم العربية + مسافة بين الأسطر"""
-        reshaped_text = arabic_reshaper.reshape(text)
-        bidi_text = get_display(reshaped_text)
-
-        lines = bidi_text.split("\n")
-        img = Image.new("RGBA", (image_width, image_height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-
-        try:
-            font = ImageFont.truetype(font_path, font_size)
-        except:
-            return img
-
-        # حساب الارتفاع الكلي للنص مع المسافات
-        total_height = 0
-        line_heights = []
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            h = bbox[3] - bbox[1]
-            line_heights.append(h)
-            total_height += h + 20  # 20 بكسل مسافة بين الأسطر
-        total_height -= 20
-
-        y = (image_height - total_height) / 2
-        for i, line in enumerate(lines):
-            bbox = draw.textbbox((0, 0), line, font=font)
-            text_width = bbox[2] - bbox[0]
-            x = (image_width - text_width) / 2
-            draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
-            y += line_heights[i] + 20
-
-        return img  # ❌ إزالة أي قلب للصورة
 
     def create_frame(t):
         global progress_value
@@ -107,7 +124,6 @@ def convert():
         color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
 
         bg_image = Image.new("RGB", (width, height), color=color)
-        text_img = draw_text_with_pillow(video_text, 80, width, height)
         bg_image.paste(text_img, (0, 0), text_img)
 
         return np.array(bg_image)
