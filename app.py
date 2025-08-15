@@ -7,6 +7,8 @@ import numpy as np
 from flask import Flask, render_template, request, send_file, jsonify
 from moviepy.editor import AudioFileClip, VideoClip
 from PIL import Image, ImageDraw, ImageFont
+
+# ✅ مكتبات دعم العربية
 import arabic_reshaper
 from bidi.algorithm import get_display
 
@@ -39,7 +41,7 @@ def convert():
     if not audio_file:
         return "❌ لم يتم رفع أي ملف", 400
 
-    # حفظ الملفات المؤقتة في /tmp على Render
+    # 📂 حفظ الملفات المؤقتة في /tmp على Render
     audio_path = os.path.join(tempfile.gettempdir(), "uploaded.wav")
     output_path = os.path.join(tempfile.gettempdir(), "converted_video.mp4")
     audio_file.save(audio_path)
@@ -49,6 +51,7 @@ def convert():
     if not audio_file.mimetype in ["audio/wav", "audio/x-wav"]:
         return "❌ الملف المرسل ليس بصيغة WAV. تحقق من عملية التحويل في المتصفح.", 400
 
+    # قراءة الملف الصوتي
     try:
         audio_clip = AudioFileClip(audio_path)
     except Exception as e:
@@ -85,7 +88,7 @@ def convert():
         except:
             font = ImageFont.load_default()
 
-        # دعم العربية سطر-بسطر
+        # ✨ دعم العربية سطر بسطر
         video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
         raw_lines = video_text_clean.split("\n")
 
@@ -99,6 +102,7 @@ def convert():
                 bidi_line = clean
             lines.append(bidi_line)
 
+        # حساب حجم النص وموضعه
         line_heights = []
         max_width = 0
         for line in lines:
@@ -121,11 +125,12 @@ def convert():
 
         return np.array(image)
 
+    # كتابة الفيديو مع إعدادات قليلة الذاكرة
     try:
         video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
         video_clip.set_audio(audio_clip).write_videofile(
             output_path,
-            fps=15,                # تقليل معدل الإطارات
+            fps=15,                # معدل الإطارات أقل
             codec="libx264",
             audio_codec="aac",
             preset="ultrafast",    # ضغط أقل = ذاكرة أقل
