@@ -45,6 +45,20 @@
             color: white;
             line-height: 20px;
         }
+
+        /* النص المتوهج */
+        .glow-text {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #0d6efd;
+            text-shadow: 0 0 5px #0d6efd, 0 0 10px #0d6efd, 0 0 20px #0d6efd;
+            animation: glow 1.5s infinite alternate;
+            margin-top: 15px;
+        }
+        @keyframes glow {
+            from { text-shadow: 0 0 5px #0d6efd, 0 0 10px #0d6efd, 0 0 20px #0d6efd; }
+            to { text-shadow: 0 0 10px #0d6efd, 0 0 20px #0d6efd, 0 0 30px #0d6efd; }
+        }
     </style>
 </head>
 <body>
@@ -71,6 +85,9 @@
         <div id="progressBar">
             <div id="progressFill">0%</div>
         </div>
+
+        <!-- النص المتوهج -->
+        <div class="glow-text">برمجة وتطوير: ليث عبيدات</div>
     </div>
 
     <script>
@@ -82,7 +99,7 @@
 
         function startTimer(reset = false) {
             document.getElementById("recordTimer").style.display = "block";
-            if (reset) secondsElapsed = 0; // إعادة الصفر فقط عند بدء تسجيل جديد
+            if (reset) secondsElapsed = 0;
             timerInterval = setInterval(() => {
                 secondsElapsed++;
                 let minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
@@ -96,7 +113,6 @@
             document.getElementById("recordTimer").style.display = "none";
         }
 
-        // تحويل WebM إلى WAV
         function convertToWav(webmBlob) {
             return new Promise(resolve => {
                 const audioContext = new AudioContext();
@@ -163,7 +179,7 @@
             };
 
             mediaRecorder.start();
-            startTimer(true); // إعادة العداد للصفر فقط هنا
+            startTimer(true);
 
             this.disabled = true;
             document.getElementById("pauseRecord").disabled = false;
@@ -173,11 +189,11 @@
         document.getElementById("pauseRecord").onclick = function() {
             if (mediaRecorder.state === "recording") {
                 mediaRecorder.pause();
-                clearInterval(timerInterval); // توقف المؤقت
+                clearInterval(timerInterval);
                 this.innerText = "▶ إكمال التسجيل";
             } else if (mediaRecorder.state === "paused") {
                 mediaRecorder.resume();
-                startTimer(false); // يكمل من نفس الوقت
+                startTimer(false);
                 this.innerText = "⏸ إيقاف مؤقت";
             }
         };
@@ -203,34 +219,48 @@
             formData.append("audio", audioFile, "recorded.wav");
             formData.append("text", videoText);
 
-            let xhr = new XMLHttpRequest();
-            xhr.open("POST", "/convert", true);
-            xhr.responseType = "blob";
+            fetch("/convert", { method: "POST", body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.job_id) {
+                        alert("❌ خطأ: " + (data.error || "لم يتم إنشاء المهمة"));
+                        return;
+                    }
 
-            let progressInterval = setInterval(() => {
-                fetch("/progress")
-                    .then(res => res.json())
-                    .then(data => {
-                        let progress = data.progress;
-                        document.getElementById("progressFill").style.width = progress + "%";
-                        document.getElementById("progressFill").innerText = progress + "%";
-                    });
-            }, 500);
+                    let jobId = data.job_id;
+                    let progressInterval = setInterval(() => {
+                        fetch(`/progress/${jobId}`)
+                            .then(res => res.json())
+                            .then(pData => {
+                                let progress = pData.progress || 0;
+                                document.getElementById("progressFill").style.width = progress + "%";
+                                document.getElementById("progressFill").innerText = progress + "%";
 
-            xhr.onload = function () {
-                clearInterval(progressInterval);
-                if (xhr.status === 200) {
-                    let blob = new Blob([xhr.response], { type: "video/mp4" });
-                    let link = document.createElement("a");
-                    link.href = URL.createObjectURL(blob);
-                    link.download = "converted_video.mp4";
-                    link.click();
-                } else {
-                    alert("❌ حدث خطأ أثناء التحويل");
-                }
-            };
-
-            xhr.send(formData);
+                                if (progress >= 100) {
+                                    clearInterval(progressInterval);
+                                    fetch(`/result/${jobId}`)
+                                        .then(r => {
+                                            if (r.headers.get("Content-Type")?.includes("video")) {
+                                                return r.blob().then(blob => {
+                                                    let link = document.createElement("a");
+                                                    link.href = URL.createObjectURL(blob);
+                                                    link.download = "converted_video.mp4";
+                                                    link.click();
+                                                });
+                                            } else {
+                                                return r.json().then(errData => {
+                                                    alert(errData.message || "❌ حدث خطأ أثناء المعالجة");
+                                                });
+                                            }
+                                        });
+                                }
+                            });
+                    }, 1000);
+                })
+                .catch(err => {
+                    alert("❌ خطأ في الاتصال بالخادم");
+                    console.error(err);
+                });
         }
     </script>
 </body>
