@@ -2,8 +2,8 @@ import sys
 import subprocess
 import os
 
-# ✅ التأكد من تثبيت مكتبات دعم العربية
-for package in ["arabic-reshaper", "python-bidi"]:
+# ✅ التأكد من تثبيت المكتبات المطلوبة
+for package in ["arabic-reshaper", "python-bidi", "pycairo", "PyGObject"]:
     try:
         __import__(package.replace("-", "_"))
     except ImportError:
@@ -11,7 +11,7 @@ for package in ["arabic-reshaper", "python-bidi"]:
 
 from flask import Flask, render_template, request, send_file, jsonify
 from moviepy.editor import AudioFileClip, VideoClip
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import numpy as np
 import math
 
@@ -19,8 +19,14 @@ import math
 import arabic_reshaper
 from bidi.algorithm import get_display
 
+# مكتبات Pango + Cairo
+import gi
+gi.require_version('Pango', '1.0')
+gi.require_version('PangoCairo', '1.0')
+from gi.repository import Pango, PangoCairo, cairo
+
 app = Flask(__name__)
-progress_value = 0  # لتتبع نسبة الإنجاز
+progress_value = 0
 
 @app.route('/')
 def index():
@@ -48,21 +54,38 @@ def convert():
     width, height = 1280, 720
     colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
 
-    # 📌 مسار الخط البديل
+    # 📌 مسار الخط
     font_path = os.path.join(os.path.dirname(__file__), "NotoNaskhArabic-VariableFont_wght.ttf")
-    print(f"✅ الخط المستخدم: {font_path}")  # طباعة اسم الخط في الـ log
+    print(f"✅ الخط المستخدم: {font_path}")
 
     def blend_colors(c1, c2, ratio):
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
 
-    # 🔹 دالة رسم النص العربي يدويًا من اليمين لليسار
-    def draw_arabic_line(draw, text, font, start_y, image_width, fill="white"):
-        x_cursor = image_width // 2 + (draw.textlength(text, font=font) // 2)
-        for ch in text:
-            w, h = draw.textsize(ch, font=font)
-            draw.text((x_cursor - w, start_y), ch, font=font, fill=fill)
-            x_cursor -= w
-        return h
+    def draw_text_with_pango(text, font_size, image_width, image_height):
+        """إنشاء صورة نص باستخدام Pango + Cairo مع دعم العربية"""
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, image_width, image_height)
+        ctx = cairo.Context(surface)
+        layout = PangoCairo.create_layout(ctx)
+
+        # تفعيل دعم العربية
+        reshaped = arabic_reshaper.reshape(text)
+        bidi_text = get_display(reshaped)
+
+        # إعدادات الخط
+        font_desc = Pango.FontDescription(f"Noto Naskh Arabic {font_size}")
+        layout.set_font_description(font_desc)
+        layout.set_width(image_width * Pango.SCALE)
+        layout.set_alignment(Pango.Alignment.CENTER)
+        layout.set_text(bidi_text, -1)
+
+        # تحديد موقع النص في منتصف الصورة
+        ink_rect, logical_rect = layout.get_extents()
+        text_height = logical_rect.height // Pango.SCALE
+        ctx.set_source_rgb(1, 1, 1)
+        ctx.move_to(0, (image_height - text_height) / 2)
+        PangoCairo.show_layout(ctx, layout)
+
+        return surface
 
     def create_frame(t):
         global progress_value
@@ -81,52 +104,18 @@ def convert():
         base_color = blend_colors(colors[current_index], colors[next_index], ratio)
         color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
 
-        image = Image.new("RGB", (width, height), color=color)
-        draw = ImageDraw.Draw(image)
+        # خلفية
+        bg_image = Image.new("RGB", (width, height), color=color)
 
-        try:
-            font = ImageFont.truetype(font_path, 80)
-        except:
-            font = ImageFont.load_default()
+        # نص
+        text_surface = draw_text_with_pango(video_text, 80, width, height)
+        text_data = text_surface.get_data()
+        text_img = Image.frombuffer("RGBA", (width, height), text_data, "raw", "BGRA", 0, 1)
 
-        # 🔹 دعم العربية سطر-بسطر بشكل صحيح
-        video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
-        raw_lines = video_text_clean.split("\n")
+        # دمج النص مع الخلفية
+        bg_image.paste(text_img, (0, 0), text_img)
 
-        lines = []
-        for raw in raw_lines:
-            clean = ''.join(ch for ch in raw if ch.isprintable())
-            if any('\u0600' <= ch <= '\u06FF' for ch in clean):  # إذا يحتوي على حروف عربية
-                reshaped = arabic_reshaper.reshape(clean)       # إعادة تشكيل الحروف
-                bidi_line = get_display(reshaped)               # قلب الاتجاه للعرض الصحيح
-            else:
-                bidi_line = clean
-            lines.append(bidi_line)
-
-        line_heights = []
-        max_width = 0
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            w = bbox[2] - bbox[0]
-            h = bbox[3] - bbox[1]
-            line_heights.append(h)
-            if w > max_width:
-                max_width = w
-
-        total_height = sum(line_heights) + (len(lines) - 1) * 20
-        current_y = (height - total_height) // 2
-        for line in lines:
-            if any('\u0600' <= ch <= '\u06FF' for ch in line):
-                h = draw_arabic_line(draw, line, font, current_y, width, fill="white")
-            else:
-                bbox = draw.textbbox((0, 0), line, font=font)
-                w = bbox[2] - bbox[0]
-                x = (width - w) // 2
-                draw.text((x, current_y), line, font=font, fill="white")
-                h = bbox[3] - bbox[1]
-            current_y += h + 20
-
-        return np.array(image)
+        return np.array(bg_image)
 
     video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
     output_path = "converted_video.mp4"
