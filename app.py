@@ -55,6 +55,15 @@ def convert():
     def blend_colors(c1, c2, ratio):
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
 
+    # 🔹 دالة رسم النص العربي يدويًا من اليمين لليسار
+    def draw_arabic_line(draw, text, font, start_y, image_width, fill="white"):
+        x_cursor = image_width // 2 + (draw.textlength(text, font=font) // 2)
+        for ch in text:
+            w, h = draw.textsize(ch, font=font)
+            draw.text((x_cursor - w, start_y), ch, font=font, fill=fill)
+            x_cursor -= w
+        return h
+
     def create_frame(t):
         global progress_value
         progress_value = int((t / audio_clip.duration) * 100)
@@ -90,7 +99,6 @@ def convert():
             if any('\u0600' <= ch <= '\u06FF' for ch in clean):  # إذا يحتوي على حروف عربية
                 reshaped = arabic_reshaper.reshape(clean)       # إعادة تشكيل الحروف
                 bidi_line = get_display(reshaped)               # قلب الاتجاه للعرض الصحيح
-                bidi_line = "\u202B" + bidi_line + "\u202C"      # إجبار اتجاه النص RTL
             else:
                 bidi_line = clean
             lines.append(bidi_line)
@@ -108,11 +116,14 @@ def convert():
         total_height = sum(line_heights) + (len(lines) - 1) * 20
         current_y = (height - total_height) // 2
         for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            w = bbox[2] - bbox[0]
-            h = bbox[3] - bbox[1]
-            x = (width - w) // 2
-            draw.text((x, current_y), line, font=font, fill="white")
+            if any('\u0600' <= ch <= '\u06FF' for ch in line):
+                h = draw_arabic_line(draw, line, font, current_y, width, fill="white")
+            else:
+                bbox = draw.textbbox((0, 0), line, font=font)
+                w = bbox[2] - bbox[0]
+                x = (width - w) // 2
+                draw.text((x, current_y), line, font=font, fill="white")
+                h = bbox[3] - bbox[1]
             current_y += h + 20
 
         return np.array(image)
