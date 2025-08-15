@@ -56,29 +56,36 @@ def convert():
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
 
     def draw_text_with_pillow(text, font_size, image_width, image_height):
-        """إنشاء صورة نص باستخدام Pillow مع دعم العربية"""
+        """إنشاء صورة نص باستخدام Pillow مع دعم العربية + مسافة بين الأسطر"""
         reshaped_text = arabic_reshaper.reshape(text)
         bidi_text = get_display(reshaped_text)
 
+        lines = bidi_text.split("\n")
         img = Image.new("RGBA", (image_width, image_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         try:
             font = ImageFont.truetype(font_path, font_size)
         except:
-            return img  # لو الخط غير موجود، ترجع صورة فارغة
+            return img
 
-        # قياس حجم النص
-        text_bbox = draw.textbbox((0, 0), bidi_text, font=font)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
+        # حساب الارتفاع الكلي للنص مع المسافات
+        total_height = 0
+        line_heights = []
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            h = bbox[3] - bbox[1]
+            line_heights.append(h)
+            total_height += h + 20  # 20 بكسل مسافة بين الأسطر
+        total_height -= 20
 
-        # تحديد الموقع في منتصف الصورة
-        x = (image_width - text_width) / 2
-        y = (image_height - text_height) / 2
-
-        # رسم النص باللون الأبيض
-        draw.text((x, y), bidi_text, font=font, fill=(255, 255, 255, 255))
+        y = (image_height - total_height) / 2
+        for i, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_width = bbox[2] - bbox[0]
+            x = (image_width - text_width) / 2
+            draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
+            y += line_heights[i] + 20
 
         return img
 
@@ -99,13 +106,8 @@ def convert():
         base_color = blend_colors(colors[current_index], colors[next_index], ratio)
         color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
 
-        # خلفية ملونة
         bg_image = Image.new("RGB", (width, height), color=color)
-
-        # نص
         text_img = draw_text_with_pillow(video_text, 80, width, height)
-
-        # دمج النص مع الخلفية
         bg_image.paste(text_img, (0, 0), text_img)
 
         return np.array(bg_image)
