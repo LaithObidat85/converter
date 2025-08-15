@@ -1,6 +1,14 @@
 import sys
 import subprocess
 import tempfile
+import os
+import math
+import numpy as np
+from flask import Flask, render_template, request, send_file, jsonify
+from moviepy.editor import AudioFileClip, VideoClip
+from PIL import Image, ImageDraw, ImageFont
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 # ✅ التأكد من تثبيت المكتبات المطلوبة
 for package in ["arabic-reshaper", "python-bidi"]:
@@ -8,17 +16,6 @@ for package in ["arabic-reshaper", "python-bidi"]:
         __import__(package.replace("-", "_"))
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-from flask import Flask, render_template, request, send_file, jsonify
-from moviepy.editor import AudioFileClip, VideoClip
-from PIL import Image, ImageDraw, ImageFont
-import numpy as np
-import math
-import os
-
-# مكتبات دعم العربية
-import arabic_reshaper
-from bidi.algorithm import get_display
 
 app = Flask(__name__)
 progress_value = 0  # لتتبع نسبة الإنجاز
@@ -42,17 +39,16 @@ def convert():
     if not audio_file:
         return "❌ لم يتم رفع أي ملف", 400
 
-    # ✅ حفظ الملفات المؤقتة في /tmp على Render
+    # حفظ الملفات المؤقتة في /tmp على Render
     audio_path = os.path.join(tempfile.gettempdir(), "uploaded.wav")
     output_path = os.path.join(tempfile.gettempdir(), "converted_video.mp4")
     audio_file.save(audio_path)
 
-    # ✅ التحقق من نوع الملف
+    # التحقق من نوع الملف
     print(f"📂 Uploaded file mimetype: {audio_file.mimetype}")
     if not audio_file.mimetype in ["audio/wav", "audio/x-wav"]:
         return "❌ الملف المرسل ليس بصيغة WAV. تحقق من عملية التحويل في المتصفح.", 400
 
-    # ✅ قراءة الملف الصوتي
     try:
         audio_clip = AudioFileClip(audio_path)
     except Exception as e:
@@ -89,7 +85,7 @@ def convert():
         except:
             font = ImageFont.load_default()
 
-        # 🔹 دعم العربية سطر-بسطر
+        # دعم العربية سطر-بسطر
         video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
         raw_lines = video_text_clean.split("\n")
 
@@ -127,7 +123,14 @@ def convert():
 
     try:
         video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
-        video_clip.set_audio(audio_clip).write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+        video_clip.set_audio(audio_clip).write_videofile(
+            output_path,
+            fps=15,                # تقليل معدل الإطارات
+            codec="libx264",
+            audio_codec="aac",
+            preset="ultrafast",    # ضغط أقل = ذاكرة أقل
+            bitrate="800k"         # حجم ملف أقل
+        )
     except Exception as e:
         return f"❌ خطأ أثناء إنشاء الفيديو: {str(e)}", 500
 
