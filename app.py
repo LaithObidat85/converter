@@ -1,5 +1,6 @@
 import sys
 import subprocess
+import tempfile
 
 # ✅ التأكد من تثبيت المكتبات المطلوبة
 for package in ["arabic-reshaper", "python-bidi"]:
@@ -35,16 +36,28 @@ def convert():
     global progress_value
     progress_value = 0
 
-    audio_file = request.files['audio']
+    audio_file = request.files.get('audio')
     video_text = request.form.get("text", "No text provided").strip()
 
     if not audio_file:
-        return "❌ لم يتم رفع أي ملف"
+        return "❌ لم يتم رفع أي ملف", 400
 
-    audio_path = "uploaded.wav"
+    # ✅ حفظ الملفات المؤقتة في /tmp على Render
+    audio_path = os.path.join(tempfile.gettempdir(), "uploaded.wav")
+    output_path = os.path.join(tempfile.gettempdir(), "converted_video.mp4")
     audio_file.save(audio_path)
 
-    audio_clip = AudioFileClip(audio_path)
+    # ✅ التحقق من نوع الملف
+    print(f"📂 Uploaded file mimetype: {audio_file.mimetype}")
+    if not audio_file.mimetype in ["audio/wav", "audio/x-wav"]:
+        return "❌ الملف المرسل ليس بصيغة WAV. تحقق من عملية التحويل في المتصفح.", 400
+
+    # ✅ قراءة الملف الصوتي
+    try:
+        audio_clip = AudioFileClip(audio_path)
+    except Exception as e:
+        return f"❌ خطأ في قراءة الملف الصوتي: {str(e)}", 500
+
     width, height = 1280, 720
     colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
 
@@ -77,8 +90,8 @@ def convert():
             font = ImageFont.load_default()
 
         # 🔹 دعم العربية سطر-بسطر
-        video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")  # ← تعديل مضاف
-        raw_lines = video_text_clean.split("\n")  # ← تعديل محدث
+        video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
+        raw_lines = video_text_clean.split("\n")
 
         lines = []
         for raw in raw_lines:
@@ -112,9 +125,11 @@ def convert():
 
         return np.array(image)
 
-    video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
-    output_path = "converted_video.mp4"
-    video_clip.set_audio(audio_clip).write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+    try:
+        video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
+        video_clip.set_audio(audio_clip).write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+    except Exception as e:
+        return f"❌ خطأ أثناء إنشاء الفيديو: {str(e)}", 500
 
     progress_value = 100
     return send_file(output_path, as_attachment=True)
