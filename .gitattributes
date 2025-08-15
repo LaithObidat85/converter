@@ -1,1 +1,17 @@
+# اجعل جميع الملفات النصية تستخدم LF بشكل تلقائي
 * text=auto eol=lf
+
+# تعامل مع ملفات بايثون كنصوص
+*.py text eol=lf
+
+# تعامل مع ملفات HTML و CSS و JS كنصوص
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+
+# تعامل مع ملفات Markdown والنصوص العادية
+*.md text eol=lf
+*.txt text eol=lf
+
+# ملفات الخطوط تعامل كـ binary
+*.ttf binary
