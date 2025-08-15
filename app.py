@@ -3,6 +3,8 @@ import subprocess
 import os
 import tempfile
 import asyncio
+import threading
+import uuid
 
 # ✅ التأكد من تثبيت المكتبات المطلوبة
 for package in ["arabic-reshaper", "python-bidi", "pillow", "numpy", "moviepy", "pyppeteer"]:
@@ -21,7 +23,8 @@ from bidi.algorithm import get_display
 from pyppeteer import launch
 
 app = Flask(__name__)
-progress_value = 0
+progress_value = {}
+jobs_results = {}
 
 async def render_arabic_text(text, width, height, font_size):
     """إنشاء صورة PNG للنص العربي باستخدام Puppeteer وخط عربي محلي"""
@@ -30,8 +33,6 @@ async def render_arabic_text(text, width, height, font_size):
 
     # مسار الخط بجانب ملف app.py
     font_path = os.path.abspath("NotoNaskhArabic-VariableFont_wght.ttf")
-
-    # فحص وجود الخط
     if not os.path.exists(font_path):
         raise FileNotFoundError(f"❌ ملف الخط غير موجود: {font_path}")
 
@@ -82,71 +83,93 @@ async def render_arabic_text(text, width, height, font_size):
 
     return screenshot_path
 
+
+def process_video(job_id, audio_path, video_text):
+    try:
+        audio_clip = AudioFileClip(audio_path)
+        width, height = 1280, 720
+        colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
+
+        text_image_path = asyncio.get_event_loop().run_until_complete(
+            render_arabic_text(video_text, width, height, 80)
+        )
+        text_img = Image.open(text_image_path).convert("RGBA")
+
+        def blend_colors(c1, c2, ratio):
+            return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
+
+        def create_frame(t):
+            progress_value[job_id] = int((t / audio_clip.duration) * 100)
+            num_colors = len(colors)
+            cycle_time = 6
+            total_cycle = num_colors * cycle_time
+            time_in_cycle = t % total_cycle
+            current_index = int(time_in_cycle // cycle_time)
+            next_index = (current_index + 1) % num_colors
+            ratio = (time_in_cycle % cycle_time) / cycle_time
+            pulse = (math.sin(2 * math.pi * t / 4) + 1) / 2
+            base_color = blend_colors(colors[current_index], colors[next_index], ratio)
+            color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
+            bg_image = Image.new("RGB", (width, height), color=color)
+            bg_image.paste(text_img, (0, 0), text_img)
+            return np.array(bg_image)
+
+        output_path = f"converted_{job_id}.mp4"
+        video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
+        video_clip.set_audio(audio_clip).write_videofile(
+            output_path, fps=24, codec="libx264", audio_codec="aac"
+        )
+
+        progress_value[job_id] = 100
+        jobs_results[job_id] = output_path
+
+    except Exception as e:
+        jobs_results[job_id] = f"❌ خطأ: {str(e)}"
+        progress_value[job_id] = -1
+
+
 @app.route('/')
 def index():
     return render_template("index.html")
 
-@app.route('/progress')
-def progress():
-    return jsonify({"progress": progress_value})
+
+@app.route('/progress/<job_id>')
+def progress(job_id):
+    return jsonify({"progress": progress_value.get(job_id, 0)})
+
+
+@app.route('/result/<job_id>')
+def result(job_id):
+    if job_id not in jobs_results:
+        return jsonify({"status": "processing"})
+    if isinstance(jobs_results[job_id], str) and jobs_results[job_id].startswith("❌"):
+        return jsonify({"status": "error", "message": jobs_results[job_id]})
+    return send_file(jobs_results[job_id], as_attachment=True)
+
 
 @app.route('/convert', methods=['POST'])
 def convert():
-    global progress_value
-    progress_value = 0
+    try:
+        audio_file = request.files.get('audio')
+        video_text = request.form.get("text", "").strip()
+        if not audio_file:
+            return jsonify({"error": "❌ لم يتم رفع أي ملف"}), 400
 
-    audio_file = request.files['audio']
-    video_text = request.form.get("text", "No text provided").strip()
+        audio_path = f"uploaded_{uuid.uuid4()}.wav"
+        audio_file.save(audio_path)
 
-    if not audio_file:
-        return "❌ لم يتم رفع أي ملف"
+        # إنشاء معرف للعمل
+        job_id = str(uuid.uuid4())
+        progress_value[job_id] = 0
 
-    audio_path = "uploaded.wav"
-    audio_file.save(audio_path)
-    audio_clip = AudioFileClip(audio_path)
+        # تشغيل المعالجة في خلفية Thread
+        threading.Thread(target=process_video, args=(job_id, audio_path, video_text)).start()
 
-    width, height = 1280, 720
-    colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
+        return jsonify({"job_id": job_id, "status": "started"})
 
-    async def prepare_text_image():
-        return await render_arabic_text(video_text, width, height, 80)
+    except Exception as e:
+        return jsonify({"error": f"❌ خطأ غير متوقع: {str(e)}"}), 500
 
-    text_image_path = asyncio.get_event_loop().run_until_complete(prepare_text_image())
-    text_img = Image.open(text_image_path).convert("RGBA")
-
-    def blend_colors(c1, c2, ratio):
-        return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
-
-    def create_frame(t):
-        global progress_value
-        progress_value = int((t / audio_clip.duration) * 100)
-
-        num_colors = len(colors)
-        cycle_time = 6
-        total_cycle = num_colors * cycle_time
-        time_in_cycle = t % total_cycle
-
-        current_index = int(time_in_cycle // cycle_time)
-        next_index = (current_index + 1) % num_colors
-        ratio = (time_in_cycle % cycle_time) / cycle_time
-
-        pulse = (math.sin(2 * math.pi * t / 4) + 1) / 2
-        base_color = blend_colors(colors[current_index], colors[next_index], ratio)
-        color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
-
-        bg_image = Image.new("RGB", (width, height), color=color)
-        bg_image.paste(text_img, (0, 0), text_img)
-
-        return np.array(bg_image)
-
-    video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
-    output_path = "converted_video.mp4"
-    video_clip.set_audio(audio_clip).write_videofile(
-        output_path, fps=24, codec="libx264", audio_codec="aac"
-    )
-
-    progress_value = 100
-    return send_file(output_path, as_attachment=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
