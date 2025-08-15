@@ -22,16 +22,6 @@ from bidi.algorithm import get_display
 app = Flask(__name__)
 progress_value = 0  # لتتبع نسبة الإنجاز
 
-# 📌 مسار الخط البديل
-font_path = os.path.join(os.path.dirname(__file__), "NotoNaskhArabic-VariableFont_wght.ttf")
-
-# ✅ التأكد من وجود الخط
-if not os.path.exists(font_path):
-    print(f"❌ خط {font_path} غير موجود، الرجاء رفعه بجانب app.py")
-    sys.exit(1)
-else:
-    print(f"✅ الخط المستخدم: {font_path}")
-
 @app.route('/')
 def index():
     return render_template("index.html")
@@ -57,6 +47,10 @@ def convert():
     audio_clip = AudioFileClip(audio_path)
     width, height = 1280, 720
     colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
+
+    # 📌 مسار الخط البديل
+    font_path = os.path.join(os.path.dirname(__file__), "NotoNaskhArabic-VariableFont_wght.ttf")
+    print(f"✅ الخط المستخدم: {font_path}")  # طباعة اسم الخط في الـ log
 
     def blend_colors(c1, c2, ratio):
         return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
@@ -86,16 +80,16 @@ def convert():
         except:
             font = ImageFont.load_default()
 
-        # 🔹 دعم العربية سطر-بسطر
+        # 🔹 دعم العربية سطر-بسطر بشكل صحيح
         video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
         raw_lines = video_text_clean.split("\n")
 
         lines = []
         for raw in raw_lines:
             clean = ''.join(ch for ch in raw if ch.isprintable())
-            if any('\u0600' <= ch <= '\u06FF' for ch in clean):
-                reshaped = arabic_reshaper.reshape(clean)
-                bidi_line = get_display(reshaped)
+            if any('\u0600' <= ch <= '\u06FF' for ch in clean):  # إذا يحتوي على حروف عربية
+                reshaped = arabic_reshaper.reshape(clean)       # إعادة تشكيل الحروف
+                bidi_line = get_display(reshaped)               # قلب الاتجاه للعرض الصحيح
             else:
                 bidi_line = clean
             lines.append(bidi_line)
