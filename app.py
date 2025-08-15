@@ -1,5 +1,11 @@
 import sys
 import subprocess
+import os
+import math
+import numpy as np
+from flask import Flask, render_template, request, send_file, jsonify
+from moviepy.editor import AudioFileClip, VideoClip
+from PIL import Image, ImageDraw, ImageFont
 
 # ✅ التأكد من تثبيت المكتبات المطلوبة
 for package in ["arabic-reshaper", "python-bidi"]:
@@ -7,13 +13,6 @@ for package in ["arabic-reshaper", "python-bidi"]:
         __import__(package.replace("-", "_"))
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-from flask import Flask, render_template, request, send_file, jsonify
-from moviepy.editor import AudioFileClip, VideoClip
-from PIL import Image, ImageDraw, ImageFont
-import numpy as np
-import math
-import os
 
 # مكتبات دعم العربية
 import arabic_reshaper
@@ -55,24 +54,25 @@ def convert():
         global progress_value
         progress_value = int((t / audio_clip.duration) * 100)
 
-        # تدرج الألوان مع نبض
         num_colors = len(colors)
         cycle_time = 6
         total_cycle = num_colors * cycle_time
         time_in_cycle = t % total_cycle
+
         current_index = int(time_in_cycle // cycle_time)
         next_index = (current_index + 1) % num_colors
         ratio = (time_in_cycle % cycle_time) / cycle_time
+
         pulse = (math.sin(2 * math.pi * t / 4) + 1) / 2
         base_color = blend_colors(colors[current_index], colors[next_index], ratio)
         color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
 
-        # إنشاء الخلفية
         image = Image.new("RGB", (width, height), color=color)
         draw = ImageDraw.Draw(image)
 
         try:
-            font = ImageFont.truetype("arial-unicode-ms.ttf", 80)
+            font_path = os.path.join(os.path.dirname(__file__), "arial-unicode-ms.ttf")
+            font = ImageFont.truetype(font_path, 80)
         except:
             font = ImageFont.load_default()
 
@@ -90,7 +90,6 @@ def convert():
                 bidi_line = clean
             lines.append(bidi_line)
 
-        # حساب موضع النصوص في المنتصف
         line_heights = []
         max_width = 0
         for line in lines:
@@ -103,8 +102,6 @@ def convert():
 
         total_height = sum(line_heights) + (len(lines) - 1) * 20
         current_y = (height - total_height) // 2
-
-        # رسم النصوص
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             w = bbox[2] - bbox[0]
@@ -115,18 +112,9 @@ def convert():
 
         return np.array(image)
 
-    # تقليل استهلاك الذاكرة
-    output_path = "converted_video.mp4"
     video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
-    video_clip = video_clip.set_audio(audio_clip)
-    video_clip.write_videofile(
-        output_path, 
-        fps=24, 
-        codec="libx264", 
-        audio_codec="aac", 
-        preset="ultrafast", 
-        threads=2
-    )
+    output_path = "converted_video.mp4"
+    video_clip.set_audio(audio_clip).write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
 
     progress_value = 100
     return send_file(output_path, as_attachment=True)
