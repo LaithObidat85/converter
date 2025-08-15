@@ -1,16 +1,5 @@
 import sys
 import subprocess
-import tempfile
-import os
-import math
-import numpy as np
-from flask import Flask, render_template, request, send_file, jsonify
-from moviepy.editor import AudioFileClip, VideoClip
-from PIL import Image, ImageDraw, ImageFont
-
-# ✅ مكتبات دعم العربية
-import arabic_reshaper
-from bidi.algorithm import get_display
 
 # ✅ التأكد من تثبيت المكتبات المطلوبة
 for package in ["arabic-reshaper", "python-bidi"]:
@@ -18,6 +7,17 @@ for package in ["arabic-reshaper", "python-bidi"]:
         __import__(package.replace("-", "_"))
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+from flask import Flask, render_template, request, send_file, jsonify
+from moviepy.editor import AudioFileClip, VideoClip
+from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+import math
+import os
+
+# مكتبات دعم العربية
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 app = Flask(__name__)
 progress_value = 0  # لتتبع نسبة الإنجاز
@@ -35,28 +35,16 @@ def convert():
     global progress_value
     progress_value = 0
 
-    audio_file = request.files.get('audio')
+    audio_file = request.files['audio']
     video_text = request.form.get("text", "No text provided").strip()
 
     if not audio_file:
-        return "❌ لم يتم رفع أي ملف", 400
+        return "❌ لم يتم رفع أي ملف"
 
-    # 📂 حفظ الملفات المؤقتة في /tmp على Render
-    audio_path = os.path.join(tempfile.gettempdir(), "uploaded.wav")
-    output_path = os.path.join(tempfile.gettempdir(), "converted_video.mp4")
+    audio_path = "uploaded.wav"
     audio_file.save(audio_path)
 
-    # التحقق من نوع الملف
-    print(f"📂 Uploaded file mimetype: {audio_file.mimetype}")
-    if not audio_file.mimetype in ["audio/wav", "audio/x-wav"]:
-        return "❌ الملف المرسل ليس بصيغة WAV. تحقق من عملية التحويل في المتصفح.", 400
-
-    # قراءة الملف الصوتي
-    try:
-        audio_clip = AudioFileClip(audio_path)
-    except Exception as e:
-        return f"❌ خطأ في قراءة الملف الصوتي: {str(e)}", 500
-
+    audio_clip = AudioFileClip(audio_path)
     width, height = 1280, 720
     colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
 
@@ -67,19 +55,19 @@ def convert():
         global progress_value
         progress_value = int((t / audio_clip.duration) * 100)
 
+        # تدرج الألوان مع نبض
         num_colors = len(colors)
         cycle_time = 6
         total_cycle = num_colors * cycle_time
         time_in_cycle = t % total_cycle
-
         current_index = int(time_in_cycle // cycle_time)
         next_index = (current_index + 1) % num_colors
         ratio = (time_in_cycle % cycle_time) / cycle_time
-
         pulse = (math.sin(2 * math.pi * t / 4) + 1) / 2
         base_color = blend_colors(colors[current_index], colors[next_index], ratio)
         color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
 
+        # إنشاء الخلفية
         image = Image.new("RGB", (width, height), color=color)
         draw = ImageDraw.Draw(image)
 
@@ -88,7 +76,7 @@ def convert():
         except:
             font = ImageFont.load_default()
 
-        # 🔹 دعم العربية سطر-بسطر كما في الكود الأصلي
+        # 🔹 دعم العربية سطر-بسطر
         video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
         raw_lines = video_text_clean.split("\n")
 
@@ -102,7 +90,7 @@ def convert():
                 bidi_line = clean
             lines.append(bidi_line)
 
-        # حساب حجم النص وموضعه
+        # حساب موضع النصوص في المنتصف
         line_heights = []
         max_width = 0
         for line in lines:
@@ -115,6 +103,8 @@ def convert():
 
         total_height = sum(line_heights) + (len(lines) - 1) * 20
         current_y = (height - total_height) // 2
+
+        # رسم النصوص
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             w = bbox[2] - bbox[0]
@@ -125,19 +115,18 @@ def convert():
 
         return np.array(image)
 
-    # كتابة الفيديو مع إعدادات قليلة الذاكرة
-    try:
-        video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
-        video_clip.set_audio(audio_clip).write_videofile(
-            output_path,
-            fps=15,                # معدل الإطارات أقل
-            codec="libx264",
-            audio_codec="aac",
-            preset="ultrafast",    # ضغط أقل = ذاكرة أقل
-            bitrate="800k"         # حجم ملف أقل
-        )
-    except Exception as e:
-        return f"❌ خطأ أثناء إنشاء الفيديو: {str(e)}", 500
+    # تقليل استهلاك الذاكرة
+    output_path = "converted_video.mp4"
+    video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
+    video_clip = video_clip.set_audio(audio_clip)
+    video_clip.write_videofile(
+        output_path, 
+        fps=24, 
+        codec="libx264", 
+        audio_codec="aac", 
+        preset="ultrafast", 
+        threads=2
+    )
 
     progress_value = 100
     return send_file(output_path, as_attachment=True)
