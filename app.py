@@ -11,7 +11,7 @@ for package in ["arabic-reshaper", "python-bidi", "pillow", "numpy", "moviepy"]:
 
 from flask import Flask, render_template, request, send_file, jsonify
 from moviepy.editor import AudioFileClip, VideoClip
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import numpy as np
 import math
 
@@ -87,6 +87,8 @@ def convert():
             draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
             y += line_heights[i] + 20
 
+        # قلب الصورة أفقياً لعكس اتجاه النص
+        img = ImageOps.mirror(img)
         return img
 
     def create_frame(t):
