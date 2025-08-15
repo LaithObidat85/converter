@@ -1,124 +1,97 @@
-import sys
-import subprocess
+from flask import Flask, request, send_file, jsonify
 import os
-import math
-import numpy as np
-from flask import Flask, render_template, request, send_file, jsonify
-from moviepy.editor import AudioFileClip, VideoClip
+from moviepy.editor import *
 from PIL import Image, ImageDraw, ImageFont
-
-# ✅ التأكد من تثبيت المكتبات المطلوبة
-for package in ["arabic-reshaper", "python-bidi"]:
-    try:
-        __import__(package.replace("-", "_"))
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-# مكتبات دعم العربية
 import arabic_reshaper
 from bidi.algorithm import get_display
+import tempfile
+import threading
 
 app = Flask(__name__)
-progress_value = 0  # لتتبع نسبة الإنجاز
 
-@app.route('/')
-def index():
-    return render_template("index.html")
+# ======================
+# اختيار الخط العربي
+# ======================
+arial_path = os.path.join(os.path.dirname(__file__), "arial-unicode-ms.ttf")
+noto_path = os.path.join(os.path.dirname(__file__), "NotoNaskhArabic-VariableFont_wght.ttf")
 
-@app.route('/progress')
-def progress():
-    return jsonify({"progress": progress_value})
+if os.path.exists(arial_path):
+    font_path = arial_path
+    print(f"✅ Using font: {os.path.basename(font_path)}")
+elif os.path.exists(noto_path):
+    font_path = noto_path
+    print(f"✅ Using font: {os.path.basename(font_path)}")
+else:
+    raise FileNotFoundError("❌ No valid Arabic font found in the project directory!")
 
+# ======================
+# متغيرات التقدم
+# ======================
+progress = {"progress": 0}
+
+def reset_progress():
+    progress["progress"] = 0
+
+# ======================
+# دالة إنشاء صورة مع نص عربي
+# ======================
+def create_text_image(text, size=(1280, 720), fontsize=50):
+    reshaped_text = arabic_reshaper.reshape(text)
+    bidi_text = get_display(reshaped_text)
+
+    img = Image.new('RGB', size, color='white')
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype(font_path, fontsize)
+    w, h = draw.textsize(bidi_text, font=font)
+    draw.text(((size[0]-w)/2, (size[1]-h)/2), bidi_text, font=font, fill='black')
+    return img
+
+# ======================
+# مسار التحويل
+# ======================
 @app.route('/convert', methods=['POST'])
 def convert():
-    global progress_value
-    progress_value = 0
+    reset_progress()
 
     audio_file = request.files['audio']
-    video_text = request.form.get("text", "No text provided").strip()
+    text = request.form['text']
 
-    if not audio_file:
-        return "❌ لم يتم رفع أي ملف"
+    with tempfile.TemporaryDirectory() as tempdir:
+        audio_path = os.path.join(tempdir, "audio.wav")
+        audio_file.save(audio_path)
 
-    audio_path = "uploaded.wav"
-    audio_file.save(audio_path)
+        # إنشاء صورة للنص
+        img = create_text_image(text)
+        img_path = os.path.join(tempdir, "text.png")
+        img.save(img_path)
 
-    audio_clip = AudioFileClip(audio_path)
-    width, height = 1280, 720
-    colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
+        progress["progress"] = 30
 
-    def blend_colors(c1, c2, ratio):
-        return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
+        # تحويل الصورة إلى فيديو
+        clip_img = ImageClip(img_path).set_duration(AudioFileClip(audio_path).duration)
+        clip_audio = AudioFileClip(audio_path)
 
-    def process_line(line):
-        """معالجة السطر: إذا كان يحتوي عربي → إعادة تشكيل وتطبيق bidi"""
-        clean = ''.join(ch for ch in line if ch.isprintable())
-        if any('\u0600' <= ch <= '\u06FF' for ch in clean):
-            reshaped = arabic_reshaper.reshape(clean)
-            return get_display(reshaped)
-        return clean
+        progress["progress"] = 60
 
-    def create_frame(t):
-        global progress_value
-        progress_value = int((t / audio_clip.duration) * 100)
+        # دمج الصوت والصورة
+        final_clip = clip_img.set_audio(clip_audio)
 
-        num_colors = len(colors)
-        cycle_time = 6
-        total_cycle = num_colors * cycle_time
-        time_in_cycle = t % total_cycle
+        output_path = os.path.join(tempdir, "converted_video.mp4")
+        final_clip.write_videofile(output_path, fps=24, codec='libx264', audio_codec='aac')
 
-        current_index = int(time_in_cycle // cycle_time)
-        next_index = (current_index + 1) % num_colors
-        ratio = (time_in_cycle % cycle_time) / cycle_time
+        progress["progress"] = 100
 
-        pulse = (math.sin(2 * math.pi * t / 4) + 1) / 2
-        base_color = blend_colors(colors[current_index], colors[next_index], ratio)
-        color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
+        return send_file(output_path, as_attachment=True)
 
-        image = Image.new("RGB", (width, height), color=color)
-        draw = ImageDraw.Draw(image)
+# ======================
+# مسار التقدم
+# ======================
+@app.route('/progress', methods=['GET'])
+def get_progress():
+    return jsonify(progress)
 
-        try:
-            font_path = os.path.join(os.path.dirname(__file__), "arial-unicode-ms.ttf")
-            font = ImageFont.truetype(font_path, 80)
-        except:
-            font = ImageFont.load_default()
-
-        # 🔹 تجهيز النص سطر-بسطر
-        video_text_clean = video_text.replace("\r\n", "\n").replace("\r", "\n")
-        lines = [process_line(raw) for raw in video_text_clean.split("\n")]
-
-        # حساب موضع النص
-        line_heights = []
-        max_width = 0
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            w = bbox[2] - bbox[0]
-            h = bbox[3] - bbox[1]
-            line_heights.append(h)
-            if w > max_width:
-                max_width = w
-
-        total_height = sum(line_heights) + (len(lines) - 1) * 20
-        current_y = (height - total_height) // 2
-
-        # رسم النص
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            w = bbox[2] - bbox[0]
-            h = bbox[3] - bbox[1]
-            x = (width - w) // 2
-            draw.text((x, current_y), line, font=font, fill="white")
-            current_y += h + 20
-
-        return np.array(image)
-
-    video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
-    output_path = "converted_video.mp4"
-    video_clip.set_audio(audio_clip).write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
-
-    progress_value = 100
-    return send_file(output_path, as_attachment=True)
-
+# ======================
+# تشغيل السيرفر
+# ======================
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000)
