@@ -27,13 +27,13 @@ progress_value = {}
 jobs_results = {}
 
 async def render_arabic_text(text, width, height, font_size):
-    """إنشاء صورة PNG للنص العربي باستخدام Puppeteer وخط عربي محلي"""
+    app.logger.info("▶️ دخل render_arabic_text")
     reshaped_text = arabic_reshaper.reshape(text)
     bidi_text = get_display(reshaped_text)
 
-    # مسار الخط بجانب ملف app.py
     font_path = os.path.abspath("NotoNaskhArabic-VariableFont_wght.ttf")
     if not os.path.exists(font_path):
+        app.logger.error(f"❌ ملف الخط غير موجود: {font_path}")
         raise FileNotFoundError(f"❌ ملف الخط غير موجود: {font_path}")
 
     html_content = f"""
@@ -72,6 +72,7 @@ async def render_arabic_text(text, width, height, font_size):
     html_file = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
     html_file.write(html_content.encode("utf-8"))
     html_file.close()
+    app.logger.info(f"📄 HTML جاهز: {html_file.name}")
 
     browser = await launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
     page = await browser.newPage()
@@ -81,11 +82,13 @@ async def render_arabic_text(text, width, height, font_size):
     await page.screenshot({'path': screenshot_path, 'omitBackground': True})
     await browser.close()
 
+    app.logger.info(f"🖼️ تم إنشاء صورة النص: {screenshot_path}")
     return screenshot_path
 
 
 def process_video(job_id, audio_path, video_text):
     try:
+        app.logger.info(f"▶️ بدأ process_video للملف {audio_path}")
         audio_clip = AudioFileClip(audio_path)
         width, height = 1280, 720
         colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
@@ -93,6 +96,7 @@ def process_video(job_id, audio_path, video_text):
         text_image_path = asyncio.get_event_loop().run_until_complete(
             render_arabic_text(video_text, width, height, 80)
         )
+        app.logger.info(f"🖼️ صورة النص جاهزة: {text_image_path}")
         text_img = Image.open(text_image_path).convert("RGBA")
 
         def blend_colors(c1, c2, ratio):
@@ -100,21 +104,10 @@ def process_video(job_id, audio_path, video_text):
 
         def create_frame(t):
             progress_value[job_id] = int((t / audio_clip.duration) * 100)
-            num_colors = len(colors)
-            cycle_time = 6
-            total_cycle = num_colors * cycle_time
-            time_in_cycle = t % total_cycle
-            current_index = int(time_in_cycle // cycle_time)
-            next_index = (current_index + 1) % num_colors
-            ratio = (time_in_cycle % cycle_time) / cycle_time
-            pulse = (math.sin(2 * math.pi * t / 4) + 1) / 2
-            base_color = blend_colors(colors[current_index], colors[next_index], ratio)
-            color = tuple(int(c * (0.7 + 0.3 * pulse)) for c in base_color)
-            bg_image = Image.new("RGB", (width, height), color=color)
-            bg_image.paste(text_img, (0, 0), text_img)
-            return np.array(bg_image)
+            return np.array(Image.new("RGB", (width, height), color=(50, 50, 50)))
 
         output_path = f"converted_{job_id}.mp4"
+        app.logger.info(f"🎥 كتابة الفيديو إلى {output_path}")
         video_clip = VideoClip(make_frame=create_frame, duration=audio_clip.duration)
         video_clip.set_audio(audio_clip).write_videofile(
             output_path, fps=24, codec="libx264", audio_codec="aac"
@@ -122,54 +115,36 @@ def process_video(job_id, audio_path, video_text):
 
         progress_value[job_id] = 100
         jobs_results[job_id] = output_path
+        app.logger.info(f"✅ اكتمل إنشاء الفيديو: {output_path}")
 
     except Exception as e:
         jobs_results[job_id] = f"❌ خطأ: {str(e)}"
         progress_value[job_id] = -1
-
-
-@app.route('/')
-def index():
-    return render_template("index.html")
-
-
-@app.route('/progress/<job_id>')
-def progress(job_id):
-    return jsonify({"progress": progress_value.get(job_id, 0)})
-
-
-@app.route('/result/<job_id>')
-def result(job_id):
-    if job_id not in jobs_results:
-        return jsonify({"status": "processing"})
-    if isinstance(jobs_results[job_id], str) and jobs_results[job_id].startswith("❌"):
-        return jsonify({"status": "error", "message": jobs_results[job_id]})
-    return send_file(jobs_results[job_id], as_attachment=True)
+        app.logger.error(f"❌ فشل process_video: {e}")
 
 
 @app.route('/convert', methods=['POST'])
 def convert():
     try:
+        app.logger.info("▶️ دخل convert")
         audio_file = request.files.get('audio')
         video_text = request.form.get("text", "").strip()
         if not audio_file:
+            app.logger.error("❌ لم يتم رفع أي ملف صوتي")
             return jsonify({"error": "❌ لم يتم رفع أي ملف"}), 400
 
         audio_path = f"uploaded_{uuid.uuid4()}.wav"
         audio_file.save(audio_path)
+        app.logger.info(f"📥 تم حفظ الملف: {audio_path}")
 
-        # إنشاء معرف للعمل
         job_id = str(uuid.uuid4())
         progress_value[job_id] = 0
+        app.logger.info(f"🆔 Job ID = {job_id}")
 
-        # تشغيل المعالجة في خلفية Thread
         threading.Thread(target=process_video, args=(job_id, audio_path, video_text)).start()
 
         return jsonify({"job_id": job_id, "status": "started"})
 
     except Exception as e:
+        app.logger.error(f"❌ خطأ داخل convert: {e}")
         return jsonify({"error": f"❌ خطأ غير متوقع: {str(e)}"}), 500
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
