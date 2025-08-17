@@ -172,3 +172,22 @@ def progress(job_id):
         return jsonify({"progress": progress_value[job_id]})
     else:
         return jsonify({"error": "❌ Job ID غير موجود"}), 404
+
+
+# ================== result API ==================
+@app.route('/result/<job_id>', methods=['GET'])
+def result(job_id):
+    """إرجاع الفيديو الناتج إذا اكتمل"""
+    if job_id not in jobs_results:
+        return jsonify({"error": "❌ Job ID غير موجود"}), 404
+
+    result_path = jobs_results[job_id]
+    if not os.path.exists(result_path):
+        return jsonify({"error": "❌ لم يتم العثور على الفيديو"}), 404
+
+    return send_file(result_path, mimetype="video/mp4", as_attachment=True, download_name="converted_video.mp4")
+
+
+# ================== Run ==================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
