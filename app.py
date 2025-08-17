@@ -1,3 +1,4 @@
+# باقي الاستيرادات والكود كما هو عندك 👇
 import sys
 import subprocess
 import os
@@ -6,7 +7,6 @@ import asyncio
 import threading
 import uuid
 
-# ✅ التأكد من تثبيت المكتبات المطلوبة
 for package in ["arabic-reshaper", "python-bidi", "pillow", "numpy", "moviepy", "pyppeteer"]:
     try:
         __import__(package.replace("-", "_"))
@@ -17,7 +17,6 @@ from flask import Flask, render_template, request, send_file, jsonify
 from moviepy.editor import AudioFileClip, VideoClip
 from PIL import Image
 import numpy as np
-import math
 import arabic_reshaper
 from bidi.algorithm import get_display
 from pyppeteer import launch
@@ -26,6 +25,7 @@ app = Flask(__name__)
 progress_value = {}
 jobs_results = {}
 
+# ================== render_arabic_text ==================
 async def render_arabic_text(text, width, height, font_size):
     app.logger.info("▶️ دخل render_arabic_text")
     reshaped_text = arabic_reshaper.reshape(text)
@@ -86,20 +86,16 @@ async def render_arabic_text(text, width, height, font_size):
     return screenshot_path
 
 
+# ================== process_video ==================
 def process_video(job_id, audio_path, video_text):
     try:
         app.logger.info(f"▶️ بدأ process_video للملف {audio_path}")
         audio_clip = AudioFileClip(audio_path)
         width, height = 1280, 720
 
-        # ✅ إصلاح مشكلة event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        text_image_path = loop.run_until_complete(
+        text_image_path = asyncio.get_event_loop().run_until_complete(
             render_arabic_text(video_text, width, height, 80)
         )
-        loop.close()
-
         app.logger.info(f"🖼️ صورة النص جاهزة: {text_image_path}")
         text_img = Image.open(text_image_path).convert("RGBA")
 
@@ -124,6 +120,7 @@ def process_video(job_id, audio_path, video_text):
         app.logger.error(f"❌ فشل process_video: {e}")
 
 
+# ================== convert API ==================
 @app.route('/convert', methods=['POST'])
 def convert():
     try:
@@ -149,3 +146,13 @@ def convert():
     except Exception as e:
         app.logger.error(f"❌ خطأ داخل convert: {e}")
         return jsonify({"error": f"❌ خطأ غير متوقع: {str(e)}"}), 500
+
+
+# ================== progress API ==================
+@app.route('/progress/<job_id>', methods=['GET'])
+def progress(job_id):
+    """إرجاع حالة التقدم الحالية للفيديو"""
+    if job_id in progress_value:
+        return jsonify({"progress": progress_value[job_id]})
+    else:
+        return jsonify({"error": "❌ Job ID غير موجود"}), 404
