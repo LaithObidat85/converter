@@ -5,60 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحويل الصوت إلى فيديو</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f0f0f0;
-            padding: 20px;
-            text-align: center;
-        }
-        .container {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            max-width: 500px;
-            margin: auto;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        input, textarea, button {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            border: 1px solid #ccc;
-            font-size: 16px;
-            direction: rtl;
-        }
-        textarea { white-space: pre-wrap; }
-        #progressBar {
-            width: 100%;
-            height: 20px;
-            background-color: #ddd;
-            margin-top: 10px;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        #progressFill {
-            height: 100%;
-            width: 0%;
-            background-color: #4CAF50;
-            text-align: center;
-            color: white;
-            line-height: 20px;
-        }
-
-        /* النص المتوهج */
-        .glow-text {
-            font-weight: bold;
-            font-size: 1.2em;
-            color: #0d6efd;
-            text-shadow: 0 0 5px #0d6efd, 0 0 10px #0d6efd, 0 0 20px #0d6efd;
-            animation: glow 1.5s infinite alternate;
-            margin-top: 15px;
-        }
-        @keyframes glow {
-            from { text-shadow: 0 0 5px #0d6efd, 0 0 10px #0d6efd, 0 0 20px #0d6efd; }
-            to { text-shadow: 0 0 10px #0d6efd, 0 0 20px #0d6efd, 0 0 30px #0d6efd; }
-        }
+        body { font-family: Arial, sans-serif; background: #f0f0f0; padding: 20px; text-align: center; }
+        .container { background: white; padding: 20px; border-radius: 10px; max-width: 500px; margin: auto; }
+        input, textarea, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; }
     </style>
 </head>
 <body>
@@ -68,198 +17,43 @@
         <label>أدخل النص الذي تريد عرضه في الفيديو:</label>
         <textarea id="videoText" placeholder="اكتب النص هنا..." rows="5"></textarea>
 
-        <input type="file" id="audioFile" accept=".wav">
-
-        <!-- المؤقت -->
-        <p id="recordTimer" style="font-weight:bold; color:#d9534f; display:none;">
-            مدة التسجيل: 00:00
-        </p>
-
-        <!-- أزرار التسجيل -->
-        <button id="startRecord">🎙 بدء التسجيل</button>
-        <button id="pauseRecord" disabled>⏸ إيقاف مؤقت</button>
-        <button id="stopRecord" disabled>⏹ إنهاء التسجيل</button>
+        <input type="file" id="audioFile" accept=".wav,.mp3">
 
         <button onclick="uploadAndConvert()">تحويل</button>
 
-        <div id="progressBar">
-            <div id="progressFill">0%</div>
-        </div>
-
-        <!-- النص المتوهج -->
-        <div class="glow-text">برمجة وتطوير: ليث عبيدات</div>
+        <div id="status"></div>
     </div>
 
     <script>
-        let recordedBlob = null;
-        let mediaRecorder;
-        let audioChunks = [];
-        let timerInterval = null;
-        let secondsElapsed = 0;
-
-        function startTimer(reset = false) {
-            document.getElementById("recordTimer").style.display = "block";
-            if (reset) secondsElapsed = 0;
-            timerInterval = setInterval(() => {
-                secondsElapsed++;
-                let minutes = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
-                let seconds = String(secondsElapsed % 60).padStart(2, '0');
-                document.getElementById("recordTimer").innerText = `مدة التسجيل: ${minutes}:${seconds}`;
-            }, 1000);
-        }
-
-        function stopTimer() {
-            clearInterval(timerInterval);
-            document.getElementById("recordTimer").style.display = "none";
-        }
-
-        function convertToWav(webmBlob) {
-            return new Promise(resolve => {
-                const audioContext = new AudioContext();
-                const fileReader = new FileReader();
-                fileReader.onload = () => {
-                    audioContext.decodeAudioData(fileReader.result, buffer => {
-                        const wavBuffer = audioBufferToWav(buffer);
-                        const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-                        resolve(wavBlob);
-                    });
-                };
-                fileReader.readAsArrayBuffer(webmBlob);
-            });
-        }
-
-        function audioBufferToWav(buffer) {
-            const numOfChan = buffer.numberOfChannels;
-            const length = buffer.length * numOfChan * 2 + 44;
-            const bufferArray = new ArrayBuffer(length);
-            const view = new DataView(bufferArray);
-
-            let pos = 0;
-            function writeString(s) { for (let i = 0; i < s.length; i++) view.setUint8(pos++, s.charCodeAt(i)); }
-            function write16(data) { view.setUint16(pos, data, true); pos += 2; }
-            function write32(data) { view.setUint32(pos, data, true); pos += 4; }
-
-            writeString('RIFF');
-            write32(length - 8);
-            writeString('WAVE');
-            writeString('fmt ');
-            write32(16);
-            write16(1);
-            write16(numOfChan);
-            write32(buffer.sampleRate);
-            write32(buffer.sampleRate * numOfChan * 2);
-            write16(numOfChan * 2);
-            write16(16);
-
-            writeString('data');
-            write32(length - pos - 4);
-
-            for (let i = 0; i < buffer.length; i++) {
-                for (let channel = 0; channel < numOfChan; channel++) {
-                    const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
-                    view.setInt16(pos, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-                    pos += 2;
-                }
-            }
-            return bufferArray;
-        }
-
-        document.getElementById("startRecord").onclick = async function() {
-            audioChunks = [];
-            recordedBlob = null;
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            mediaRecorder.onstop = async () => {
-                stopTimer();
-                const webmBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                recordedBlob = await convertToWav(webmBlob);
-                alert("✅ تم تسجيل الصوت وتحويله إلى WAV بنجاح!");
-            };
-
-            mediaRecorder.start();
-            startTimer(true);
-
-            this.disabled = true;
-            document.getElementById("pauseRecord").disabled = false;
-            document.getElementById("stopRecord").disabled = false;
-        };
-
-        document.getElementById("pauseRecord").onclick = function() {
-            if (mediaRecorder.state === "recording") {
-                mediaRecorder.pause();
-                clearInterval(timerInterval);
-                this.innerText = "▶ إكمال التسجيل";
-            } else if (mediaRecorder.state === "paused") {
-                mediaRecorder.resume();
-                startTimer(false);
-                this.innerText = "⏸ إيقاف مؤقت";
-            }
-        };
-
-        document.getElementById("stopRecord").onclick = function() {
-            mediaRecorder.stop();
-            this.disabled = true;
-            document.getElementById("startRecord").disabled = false;
-            document.getElementById("pauseRecord").disabled = true;
-            document.getElementById("pauseRecord").innerText = "⏸ إيقاف مؤقت";
-        };
-
         function uploadAndConvert() {
-            let audioFile = recordedBlob || document.getElementById("audioFile").files[0];
+            let audioFile = document.getElementById("audioFile").files[0];
             let videoText = document.getElementById("videoText").value;
 
             if (!audioFile) {
-                alert("⚠ يرجى اختيار ملف أو تسجيل صوت أولاً");
+                alert("⚠ يرجى اختيار ملف صوتي أولاً");
                 return;
             }
 
             let formData = new FormData();
-            formData.append("audio", audioFile, "recorded.wav");
+            formData.append("audio", audioFile);
             formData.append("text", videoText);
 
             fetch("/convert", { method: "POST", body: formData })
-                .then(res => res.json())
-                .then(data => {
-                    if (!data.job_id) {
-                        alert("❌ خطأ: " + (data.error || "لم يتم إنشاء المهمة"));
-                        return;
+                .then(res => {
+                    if (res.ok && res.headers.get("Content-Type").includes("video")) {
+                        return res.blob();
+                    } else {
+                        return res.json().then(err => { throw new Error(err.error); });
                     }
-
-                    let jobId = data.job_id;
-                    let progressInterval = setInterval(() => {
-                        fetch(`/progress/${jobId}`)
-                            .then(res => res.json())
-                            .then(pData => {
-                                let progress = pData.progress || 0;
-                                document.getElementById("progressFill").style.width = progress + "%";
-                                document.getElementById("progressFill").innerText = progress + "%";
-
-                                if (progress >= 100) {
-                                    clearInterval(progressInterval);
-                                    fetch(`/result/${jobId}`)
-                                        .then(r => {
-                                            if (r.headers.get("Content-Type")?.includes("video")) {
-                                                return r.blob().then(blob => {
-                                                    let link = document.createElement("a");
-                                                    link.href = URL.createObjectURL(blob);
-                                                    link.download = "converted_video.mp4";
-                                                    link.click();
-                                                });
-                                            } else {
-                                                return r.json().then(errData => {
-                                                    alert(errData.message || "❌ حدث خطأ أثناء المعالجة");
-                                                });
-                                            }
-                                        });
-                                }
-                            });
-                    }, 1000);
+                })
+                .then(blob => {
+                    let link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.download = "converted_video.mp4";
+                    link.click();
                 })
                 .catch(err => {
-                    alert("❌ خطأ في الاتصال بالخادم");
-                    console.error(err);
+                    document.getElementById("status").innerText = "❌ خطأ: " + err.message;
                 });
         }
     </script>
