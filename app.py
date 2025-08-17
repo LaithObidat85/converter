@@ -25,6 +25,22 @@ app = Flask(__name__)
 progress_value = {}
 jobs_results = {}
 
+# ================== صفحة رئيسية ==================
+@app.route('/')
+def home():
+    return """
+    <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="UTF-8">
+        <title>محول الملفات</title>
+      </head>
+      <body style="font-family: sans-serif; text-align: center; margin-top: 10%;">
+        <h1>✅ السيرفر يعمل بشكل صحيح</h1>
+        <p>استخدم /convert لبدء عملية التحويل</p>
+      </body>
+    </html>
+    """
+
 # ================== render_arabic_text ==================
 async def render_arabic_text(text, width, height, font_size):
     app.logger.info("▶️ دخل render_arabic_text")
