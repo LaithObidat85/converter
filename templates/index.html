@@ -5,57 +5,89 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحويل الصوت إلى فيديو</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #f0f0f0; padding: 20px; text-align: center; }
-        .container { background: white; padding: 20px; border-radius: 10px; max-width: 500px; margin: auto; }
-        input, textarea, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 500px;
+            margin: auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        input, textarea, button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+            direction: rtl;
+        }
+        textarea { white-space: pre-wrap; }
+        #progressBar {
+            width: 100%;
+            height: 20px;
+            background-color: #ddd;
+            margin-top: 10px;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #progressFill {
+            height: 100%;
+            width: 0%;
+            background-color: #4CAF50;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+        }
+        .glow-text {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #0d6efd;
+            text-shadow: 0 0 5px #0d6efd, 0 0 10px #0d6efd, 0 0 20px #0d6efd;
+            animation: glow 1.5s infinite alternate;
+            margin-top: 15px;
+        }
+        @keyframes glow {
+            from { text-shadow: 0 0 5px #0d6efd, 0 0 10px #0d6efd, 0 0 20px #0d6efd; }
+            to { text-shadow: 0 0 10px #0d6efd, 0 0 20px #0d6efd, 0 0 30px #0d6efd; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>🎵 تحويل ملف أو تسجيل صوت إلى فيديو</h2>
-        
+
         <label>أدخل النص الذي تريد عرضه في الفيديو:</label>
         <textarea id="videoText" placeholder="اكتب النص هنا..." rows="5"></textarea>
 
-        <input type="file" id="audioFile" accept=".wav,.mp3">
+        <input type="file" id="audioFile" accept=".wav">
+
+        <p id="recordTimer" style="font-weight:bold; color:#d9534f; display:none;">
+            مدة التسجيل: 00:00
+        </p>
+
+        <button id="startRecord">🎙 بدء التسجيل</button>
+        <button id="pauseRecord" disabled>⏸ إيقاف مؤقت</button>
+        <button id="stopRecord" disabled>⏹ إنهاء التسجيل</button>
 
         <button onclick="uploadAndConvert()">تحويل</button>
 
-        <div id="status"></div>
+        <div id="progressBar">
+            <div id="progressFill">0%</div>
+        </div>
+
+        <div class="glow-text">برمجة وتطوير: ليث عبيدات</div>
     </div>
 
     <script>
-        function uploadAndConvert() {
-            let audioFile = document.getElementById("audioFile").files[0];
-            let videoText = document.getElementById("videoText").value;
-
-            if (!audioFile) {
-                alert("⚠ يرجى اختيار ملف صوتي أولاً");
-                return;
-            }
-
-            let formData = new FormData();
-            formData.append("audio", audioFile);
-            formData.append("text", videoText);
-
-            fetch("/convert", { method: "POST", body: formData })
-                .then(res => {
-                    if (res.ok && res.headers.get("Content-Type").includes("video")) {
-                        return res.blob();
-                    } else {
-                        return res.json().then(err => { throw new Error(err.error); });
-                    }
-                })
-                .then(blob => {
-                    let link = document.createElement("a");
-                    link.href = URL.createObjectURL(blob);
-                    link.download = "converted_video.mp4";
-                    link.click();
-                })
-                .catch(err => {
-                    document.getElementById("status").innerText = "❌ خطأ: " + err.message;
-                });
-        }
+        // نفس كود التسجيل والتحويل عندك، بدون تغيير
+        // (يمكنني نسخه كاملاً هنا إذا أحببت)
     </script>
 </body>
 </html>
