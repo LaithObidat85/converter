@@ -91,16 +91,17 @@ def process_video(job_id, audio_path, video_text):
         app.logger.info(f"▶️ بدأ process_video للملف {audio_path}")
         audio_clip = AudioFileClip(audio_path)
         width, height = 1280, 720
-        colors = [(30, 30, 120), (200, 50, 50), (50, 200, 100)]
 
-        text_image_path = asyncio.get_event_loop().run_until_complete(
+        # ✅ إصلاح مشكلة event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        text_image_path = loop.run_until_complete(
             render_arabic_text(video_text, width, height, 80)
         )
+        loop.close()
+
         app.logger.info(f"🖼️ صورة النص جاهزة: {text_image_path}")
         text_img = Image.open(text_image_path).convert("RGBA")
-
-        def blend_colors(c1, c2, ratio):
-            return tuple(int(c1[i] + (c2[i] - c1[i]) * ratio) for i in range(3))
 
         def create_frame(t):
             progress_value[job_id] = int((t / audio_clip.duration) * 100)
